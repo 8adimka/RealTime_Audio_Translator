@@ -6,11 +6,12 @@ authors = [
     {name = "Vadim Medintsev",email = "m8adimka@gmail.com"}
 ]
 readme = "README.md"
-requires-python = "^3.11"
+requires-python = "~=3.11"
 dependencies = [
     "python-dotenv (>=1.1.1,<2.0.0)",
     "websockets (>=15.0.1,<16.0.0)",
-    "httpx (>=0.28.1,<0.29.0)"
+    "httpx (>=0.28.1,<0.29.0)",
+    "aiohttp (>=3.12.14,<4.0.0)"
 ]
 
 
