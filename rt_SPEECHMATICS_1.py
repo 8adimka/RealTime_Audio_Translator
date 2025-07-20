@@ -4,31 +4,24 @@ import os
 import subprocess
 import sys
 
-import httpx
 from dotenv import load_dotenv
-from websockets.client import connect as websocket_connect
+from websockets.client import connect as websocket_connect  # type: ignore
 
 load_dotenv()
 
 SPEECHMATICS_API_KEY = os.getenv("SPEECHMATICS_API_KEY")
 SAMPLE_RATE = 16000
 CHANNELS = 1
-CHUNK_DURATION = 0.05  # seconds (минимальный для максимальной отзывчивости)
-CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION * 2)  # 16-bit PCM = 2 bytes
+CHUNK_DURATION = 0.1
+CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION * 2)
 SOURCE_LANG = "en"
 TARGET_LANG = "ru"
 
 
 def detect_pulse_monitor():
-    """
-    Находит monitor-источник, связанный с текущим активным sink'ом (потоком системного звука).
-    """
     try:
         result = subprocess.run(
-            ["pactl", "info"],
-            capture_output=True,
-            text=True,
-            check=True,
+            ["pactl", "info"], capture_output=True, text=True, check=True
         )
         for line in result.stdout.splitlines():
             if line.startswith("Default Sink:"):
@@ -51,9 +44,9 @@ async def read_ffmpeg_audio():
         "-i",
         monitor_source,
         "-ac",
-        "1",
+        str(CHANNELS),
         "-ar",
-        "16000",
+        str(SAMPLE_RATE),
         "-acodec",
         "pcm_s16le",
         "-f",
@@ -65,6 +58,8 @@ async def read_ffmpeg_audio():
     process = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=subprocess.DEVNULL
     )
+    if process.stdout is None:
+        raise RuntimeError("Failed to open ffmpeg stdout pipe")
     while True:
         data = await process.stdout.read(CHUNK_SIZE)
         if not data:
@@ -76,30 +71,47 @@ class RealTimeSubtitles:
     def __init__(self):
         self.session_active = False
         self.websocket = None
-        self.last_interim_len = 0
+        self.final_buffer = []
         self.partial_buffer = ""
-        self.final_buffer = []  # список финальных сегментов для контекста
-        self.max_context = 10  # сколько финальных сегментов держать для контекста
+        self.last_interim_len = 0
+        self.initialized = False
+        self.translation_cache = {}  # Новый кэш переводов
 
-    def redraw(self, interim=None):
-        sys.stdout.write("\033[2J\033[H")
-        for segment in self.final_buffer[-self.max_context :]:
-            print(segment)
-        if interim:
-            print(interim, end="", flush=True)
-        else:
-            print("", end="", flush=True)
+    def redraw(self, text=None, is_final=False):
+        if not self.initialized:
+            os.system("clear")
+            print("Speechmatics connection established")
+            self.initialized = True
+
+        if is_final and text:
+            sys.stdout.write("\r" + " " * self.last_interim_len + "\r")
+            sys.stdout.flush()
+            print(text)
+            self.last_interim_len = 0
+        elif text:
+            sys.stdout.write("\r" + " " * self.last_interim_len + "\r")
+            sys.stdout.write(text)
+            sys.stdout.flush()
+            self.last_interim_len = len(text)
 
     def print_interim(self, text):
-        self.last_interim_len = len(text)
-        self.redraw(interim=text)
+        self.partial_buffer = text
+        self.redraw(text=text, is_final=False)
 
     def print_final(self, text):
-        self.last_interim_len = 0
-        self.redraw(interim=None)
+        if text and text not in self.final_buffer:
+            self.final_buffer.append(text)
+            self.redraw(text=text, is_final=True)
+            self.partial_buffer = ""
 
-    def get_context(self):
-        return " ".join(self.final_buffer[-self.max_context :])
+    def maybe_cached(self, text):
+        text = text.strip()
+        if not text:
+            return ""
+        if text in self.translation_cache:
+            return self.translation_cache[text]
+        self.translation_cache[text] = text  # Кэшируем то, что пришло от Speechmatics
+        return text
 
     async def process_audio_stream(self):
         self.session_active = True
@@ -120,73 +132,59 @@ class RealTimeSubtitles:
             },
             "translation_config": {
                 "target_languages": [TARGET_LANG],
-                "enable_partials": True,  # Включение частичных переводов
+                "enable_partials": True,
             },
         }
         try:
             async with websocket_connect(
                 url, extra_headers=extra_headers, ping_interval=30, max_size=2**24
             ) as ws:
-                sys.stdout.write("\033[2J\033[H")
-                print("Speechmatics connection established")
                 self.websocket = ws
-
-                # Отправляем StartRecognition
                 await ws.send(json.dumps(start_msg))
 
-                # Ждём RecognitionStarted
                 while True:
                     msg = await ws.recv()
                     data = json.loads(msg)
                     if data.get("message") == "RecognitionStarted":
                         break
 
-                # Запускаем приём результатов параллельно с отправкой аудио
                 receive_task = asyncio.create_task(self.receive_results(ws))
 
-                # Отправляем аудиоданные
-                try:
-                    async for chunk in read_ffmpeg_audio():
-                        if not isinstance(chunk, bytes):
-                            break
-                        if len(chunk) == 0:
-                            continue
+                async for chunk in read_ffmpeg_audio():
+                    if chunk:
                         await ws.send(chunk)
-                except Exception:
-                    pass
 
-                # Завершаем поток
                 await ws.send(json.dumps({"message": "EndOfStream"}))
-
-                # Ждём завершения приёма результатов
                 try:
                     await asyncio.wait_for(receive_task, timeout=5)
                 except Exception:
                     receive_task.cancel()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Connection error: {e}")
 
     async def receive_results(self, ws):
         while self.session_active:
             try:
                 msg = await asyncio.wait_for(ws.recv(), timeout=10)
                 data = json.loads(msg)
+
                 if data.get("message") == "AddPartialTranslation":
                     translation = data.get("results", [{}])[0].get("content", "")
+                    translation = self.maybe_cached(translation)
                     if translation:
-                        self.partial_buffer = translation
-                        self.print_interim(self.partial_buffer)
+                        self.print_interim(translation)
+
                 elif data.get("message") == "AddTranslation":
                     translation = data.get("results", [{}])[0].get("content", "")
+                    translation = self.maybe_cached(translation)
                     if translation:
-                        self.final_buffer.append(translation)
-                        if len(self.final_buffer) > self.max_context:
-                            self.final_buffer = self.final_buffer[-self.max_context :]
-                        self.partial_buffer = ""
                         self.print_final(translation)
+
             except asyncio.TimeoutError:
+                print("Timeout waiting for Speechmatics response")
                 break
-            except Exception:
+            except Exception as e:
+                print(f"Receive error: {e}")
                 break
 
     def run(self):

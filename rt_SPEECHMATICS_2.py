@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 from dotenv import load_dotenv
-from websockets.client import connect
+from websockets.client import connect  # type: ignore
 
 load_dotenv()
 
@@ -64,6 +64,8 @@ async def read_ffmpeg_audio():
     process = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=subprocess.DEVNULL
     )
+    if not process.stdout:
+        raise RuntimeError("Failed to get stdout from ffmpeg process")
     while True:
         data = await process.stdout.read(CHUNK_SIZE)
         if not data:

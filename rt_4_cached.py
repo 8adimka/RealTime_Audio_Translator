@@ -15,20 +15,14 @@ DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
 SAMPLE_RATE = 16000
 CHANNELS = 1
-CHUNK_DURATION = 0.1  # секунды (уменьшено для ускорения отклика)
+CHUNK_DURATION = 0.1  # секунды
 CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION * 2)  # 16-bit PCM = 2 байта
 
 
 def detect_pulse_monitor():
-    """
-    Находит monitor-источник, связанный с текущим активным sink'ом (потоком системного звука).
-    """
     try:
         result = subprocess.run(
-            ["pactl", "info"],
-            capture_output=True,
-            text=True,
-            check=True,
+            ["pactl", "info"], capture_output=True, text=True, check=True
         )
         for line in result.stdout.splitlines():
             if line.startswith("Default Sink:"):
@@ -72,62 +66,82 @@ async def read_ffmpeg_audio():
         yield data
 
 
-async def translate_text(text: str) -> str:
-    if not text.strip():
-        return ""
-    url = "https://api-free.deepl.com/v2/translate"
-    params = {
-        "auth_key": DEEPL_API_KEY,
-        "text": text,
-        "target_lang": "RU",
-        "source_lang": "EN",
-    }
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url, data=params)
-            response.raise_for_status()
-            result = response.json()
-            return result["translations"][0]["text"]
-        except Exception as e:
-            print(f"[Translation error]: {e}")
-            return text  # возврат оригинального текста при ошибке
-
-
 class RealTimeSubtitles:
     def __init__(self):
         self.session_active = False
         self.websocket = None
-        self.final_buffer = []  # буфер для финальных переводов
-        self.max_context = 10  # максимальное количество сегментов контекста
+        self.final_buffer = []
+        self.partial_buffer = ""
+        self.last_interim_len = 0
+        self.initialized = False
+        self.translation_cache = {}  # Новый: кэш переводов
 
-    def redraw(self, interim=None):
-        sys.stdout.write("\033[2J\033[H")  # очистка экрана
-        for segment in self.final_buffer[-self.max_context :]:
-            print(segment)
-        if interim:
-            print(interim, end="", flush=True)
-        else:
-            print("", end="", flush=True)
+    def redraw(self, text=None, is_final=False):
+        if not self.initialized:
+            os.system("clear")
+            print("Deepgram connection established")
+            self.initialized = True
+
+        if is_final and text:
+            sys.stdout.write("\r" + " " * self.last_interim_len + "\r")
+            sys.stdout.flush()
+            print(text)
+            self.last_interim_len = 0
+        elif text:
+            sys.stdout.write("\r" + " " * self.last_interim_len + "\r")
+            sys.stdout.write(text)
+            sys.stdout.flush()
+            self.last_interim_len = len(text)
 
     def print_interim(self, text):
-        self.redraw(interim=text)
+        self.partial_buffer = text
+        self.redraw(text=text, is_final=False)
 
     def print_final(self, text):
-        self.final_buffer.append(text)
-        if len(self.final_buffer) > self.max_context:
-            self.final_buffer = self.final_buffer[-self.max_context :]
-        self.redraw()
+        if text and text not in self.final_buffer:
+            self.final_buffer.append(text)
+            self.redraw(text=text, is_final=True)
+            self.partial_buffer = ""
+
+    async def translate_text(self, text: str) -> str:
+        text = text.strip()
+        if not text:
+            return ""
+
+        if text in self.translation_cache:
+            return self.translation_cache[text]
+
+        url = "https://api-free.deepl.com/v2/translate"
+        params = {
+            "auth_key": DEEPL_API_KEY,
+            "text": text,
+            "target_lang": "RU",
+            "source_lang": "EN",
+        }
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(url, data=params)
+                response.raise_for_status()
+                result = response.json()
+                translated = result["translations"][0]["text"]
+                self.translation_cache[text] = translated
+                return translated
+            except Exception as e:
+                print(f"[Translation error]: {e}")
+                return text  # fallback
 
     async def process_audio_stream(self):
         self.session_active = True
         try:
             async with websocket_connect(
-                "wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=nova-2&language=en&punctuate=true&interim_results=true&endpointing=300",
+                "wss://api.deepgram.com/v1/listen"
+                "?encoding=linear16&sample_rate=16000&channels=1"
+                "&model=nova-2&language=en&punctuate=true"
+                "&interim_results=true&endpointing=300",
                 extra_headers={"Authorization": f"Token {DEEPGRAM_API_KEY}"},
-                ping_interval=10,  # пинг каждые 10 секунд
+                ping_interval=10,
             ) as ws:
-                sys.stdout.write("\033[2J\033[H")
-                print("Deepgram connection established")
                 self.websocket = ws
 
                 receive_task = asyncio.create_task(self.receive_results(ws))
@@ -148,15 +162,19 @@ class RealTimeSubtitles:
             try:
                 result = await asyncio.wait_for(ws.recv(), timeout=10)
                 data = json.loads(result)
+
                 if "channel" in data:
                     transcript = data["channel"]["alternatives"][0]["transcript"]
                     if not transcript.strip():
                         continue
-                    translated = await translate_text(transcript)
+
+                    translated = await self.translate_text(transcript)
+
                     if data.get("is_final", False):
                         self.print_final(translated)
                     else:
                         self.print_interim(translated)
+
             except asyncio.TimeoutError:
                 print("Timeout waiting for Deepgram response")
                 break

@@ -6,7 +6,7 @@ import sys
 
 import httpx
 from dotenv import load_dotenv
-from websockets.client import connect as websocket_connect
+from websockets.client import connect as websocket_connect  # type: ignore
 
 load_dotenv()
 

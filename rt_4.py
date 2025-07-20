@@ -6,7 +6,7 @@ import sys
 
 import httpx
 from dotenv import load_dotenv
-from websockets.client import connect as websocket_connect
+from websockets.client import connect as websocket_connect  # type: ignore
 
 load_dotenv()
 
@@ -15,13 +15,13 @@ DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
 SAMPLE_RATE = 16000
 CHANNELS = 1
-CHUNK_DURATION = 0.1  # секунды (уменьшено для ускорения отклика)
+CHUNK_DURATION = 0.1  # секунды
 CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION * 2)  # 16-bit PCM = 2 байта
 
 
 def detect_pulse_monitor():
     """
-    Находит monitor-источник, связанный с текущим активным sink'ом (потоком системного звука).
+    Находит monitor-источник, связанный с текущим активным sink'ом.
     """
     try:
         result = subprocess.run(
@@ -63,6 +63,8 @@ async def read_ffmpeg_audio():
     process = await asyncio.create_subprocess_exec(
         *cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
     )
+    if not process.stdout:
+        raise RuntimeError("Failed to get stdout from ffmpeg process")
     while True:
         data = await process.stdout.read(CHUNK_SIZE)
         if not data:
@@ -95,26 +97,40 @@ class RealTimeSubtitles:
     def __init__(self):
         self.session_active = False
         self.websocket = None
-        self.final_buffer = []  # буфер для финальных переводов
-        self.max_context = 10  # максимальное количество сегментов контекста
+        self.final_buffer = []  # список финальных сегментов
+        self.partial_buffer = ""  # текущий промежуточный перевод
+        self.last_interim_len = 0  # длина последнего промежуточного текста
+        self.initialized = False  # флаг инициализации вывода
 
-    def redraw(self, interim=None):
-        os.system("clear")  # Для Windows используйте 'cls'
-        for segment in self.final_buffer[-self.max_context :]:
-            print(segment)
-        if interim:
-            print(interim, end="", flush=True)
-        else:
-            print("", end="", flush=True)
+    def redraw(self, text=None, is_final=False):
+        if not self.initialized:
+            os.system("clear")  # Для Windows используйте 'cls'
+            print("Deepgram connection established")
+            self.initialized = True
+
+        if is_final and text:
+            # Затираем промежуточный текст в текущей строке
+            sys.stdout.write("\r" + " " * self.last_interim_len + "\r")
+            sys.stdout.flush()
+            # Печатаем финальный перевод с новой строки
+            print(text)
+            self.last_interim_len = 0
+        elif text:
+            # Затираем только текущую строку для промежуточного перевода
+            sys.stdout.write("\r" + " " * self.last_interim_len + "\r")
+            sys.stdout.write(text)
+            sys.stdout.flush()
+            self.last_interim_len = len(text)
 
     def print_interim(self, text):
-        self.redraw(interim=text)
+        self.partial_buffer = text
+        self.redraw(text=text, is_final=False)
 
     def print_final(self, text):
-        self.final_buffer.append(text)
-        if len(self.final_buffer) > self.max_context:
-            self.final_buffer = self.final_buffer[-self.max_context :]
-        self.redraw()
+        if text and text not in self.final_buffer:  # Проверка на дубликаты
+            self.final_buffer.append(text)
+            self.redraw(text=text, is_final=True)
+            self.partial_buffer = ""
 
     async def process_audio_stream(self):
         self.session_active = True
@@ -124,8 +140,6 @@ class RealTimeSubtitles:
                 extra_headers={"Authorization": f"Token {DEEPGRAM_API_KEY}"},
                 ping_interval=10,  # пинг каждые 10 секунд
             ) as ws:
-                sys.stdout.write("\033[2J\033[H")
-                print("Deepgram connection established")
                 self.websocket = ws
 
                 receive_task = asyncio.create_task(self.receive_results(ws))
