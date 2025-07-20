@@ -2,7 +2,7 @@
 
 ## 🎧 RealTime Audio Translator (Deepgram + DeepL)
 
-## Table of Contents
+## Content
 
 1. [Project Description](#1-project-description)
 2. [Technologies Used](#2-technologies-used)
