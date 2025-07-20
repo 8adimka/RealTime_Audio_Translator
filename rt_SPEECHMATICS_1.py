@@ -12,7 +12,7 @@ load_dotenv()
 SPEECHMATICS_API_KEY = os.getenv("SPEECHMATICS_API_KEY")
 SAMPLE_RATE = 16000
 CHANNELS = 1
-CHUNK_DURATION = 0.1
+CHUNK_DURATION = 0.05
 CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION * 2)
 SOURCE_LANG = "en"
 TARGET_LANG = "ru"
@@ -128,7 +128,7 @@ class RealTimeSubtitles:
                 "language": SOURCE_LANG,
                 "operating_point": "enhanced",
                 "enable_partials": True,
-                "max_delay": 1.0,
+                "max_delay": 1.0,  # можно уменьшить до 0.7
             },
             "translation_config": {
                 "target_languages": [TARGET_LANG],
