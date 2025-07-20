@@ -1,8 +1,4 @@
-# 🇬🇧 English version
-
-## 🎧 RealTime Audio Translator (Deepgram + DeepL)
-
-## Content
+# 🇬🇧 🎧 RealTime Audio Translator (Deepgram + DeepL)
 
 1. [Project Description](#1-project-description)
 2. [Technologies Used](#2-technologies-used)
@@ -124,10 +120,9 @@ poetry run python rt_4_cached.py
 
 ---
 ---
+---
 
-# 🇷🇺 На русском
-
-## 🎧 RealTime Audio Translator (Deepgram + DeepL)
+# 🇷🇺 🎧 RealTime Audio Translator (Deepgram + DeepL)
 
 ## Содержание
 
