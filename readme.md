@@ -26,8 +26,9 @@ The result is displayed in the terminal in real time. Latency is kept to a minim
 Currently, the project includes the following versions:
 
 1. **RealTime_Transcriber**
-    - *Performs transcription of English audio into English text and displays it.*
-        - `rt_1.py`
+    - *Performs transcription of audio into text and displays it.*
+        - `rt_1.py` # for English audio into English text
+        - `rt_1_rus.py` # Russian audio into Russian text
 
 2. **RealTime_Translator**
     - *Real-time translator outputs Russian translation of English speech.*
@@ -152,8 +153,9 @@ poetry run python rt_4_cached.py
 Сейчас проект включает следующие версии:
 
 1. **RealTime_Transcriber**
-    - *Проводит транскрибацию английского аудио в английский текст и выводит результат.*
-        - `rt_1.py`
+    - *Проводит транскрибацию аудио в текст и выводит результат.*
+        - `rt_1.py` # для английского аудио в английский текст
+        - `rt_1_rus.py` # для русского аудио в русский текст
 
 2. **RealTime_Translator**
     - *RealTime переводчик выводит перевод английской речи.*
