@@ -15,7 +15,7 @@ DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
 DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
 SAMPLE_RATE = 16000
 CHANNELS = 1
-TRANSLATION_LANG = "ES"  # Изменено с EN на ES
+TRANSLATION_LANG = "EN"  # Изменяемо, напр. с EN на ES
 CHUNK_DURATION = 0.1  # секунды
 CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION * 2)  # 16-bit PCM = 2 байта
 
