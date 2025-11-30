@@ -25,14 +25,9 @@ The result is displayed in the terminal in real time. Latency is kept to a minim
 
 Currently, the project includes the following versions:
 
-1. **RealTime_Transcriber**
-    - *Performs transcription of audio into text and displays it.*
-        - `rt_1.py` # for English audio into English text
-        - `rt_1_rus.py` # Russian audio into Russian text
-
-2. **RealTime_Translator**
+5. **RealTime_Translator**
     - *Real-time translator outputs Russian translation of English speech.*
-        - `rt_4_cached.py` — Optimal combination: speed, cost-efficiency, UX, readability, accuracy 🥇
+        - `rt_5.py` — Optimal combination: speed, cost-efficiency, UX, readability, accuracy and cashing 🥇
         - `rt_2.py` — Outdated logic, duplicates, poor output control, many API requests, but simpler and easier to follow 🥈
         - `rt_SPEECHMATICS_1.py` — Alternative version using the SPEECHMATICS API 🥉
 
@@ -152,15 +147,11 @@ poetry run python rt_4_cached.py
 
 Сейчас проект включает следующие версии:
 
-1. **RealTime_Transcriber**
-    - *Проводит транскрибацию аудио в текст и выводит результат.*
-        - `rt_1.py` # для английского аудио в английский текст
-        - `rt_1_rus.py` # для русского аудио в русский текст
 
-2. **RealTime_Translator**
+1. **RealTime_Translator**
     - *RealTime переводчик выводит перевод английской речи.*
-        - `rt_4_cached.py` — Оптимальная комбинация: скорость, экономия, UX, читаемость, точность 🥇
-        - `rt_2.py` — Устаревшая логика, дубли, плохой контроль вывода и много API-запросов, зато более простая и читаемая логика 🥈
+        - `rt_5.py` — Оптимальная комбинация: скорость, экономия, UX, читаемость, точность и использование кэширования 🥇
+        - `rt_2.py` — Устаревшая логика, зато более простая и читаемая логика 🥈
         - `rt_SPEECHMATICS_1.py` — Альтернативная версия на API от SPEECHMATICS 🥉
 
 ---
@@ -201,16 +192,11 @@ DEEPL_API_KEY=your_deepl_api_key_here
 
 ### 3.3 Запуск проекта
 
-для транскрипции английской речи в текст
+
+Для перевода на русский язык
 
 ```bash
-poetry run python rt_1.py
-```
-
-или для перевода на русский язык
-
-```bash
-poetry run python rt_4_cached.py
+poetry run python rt_5.py
 ```
 
 ---
