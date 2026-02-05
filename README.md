@@ -25,7 +25,7 @@ The result is displayed in the terminal in real time. Latency is kept to a minim
 
 Currently, the project includes the following versions:
 
-5. **RealTime_Translator**
+1. **RealTime_Translator**
     - *Real-time translator outputs Russian translation of English speech.*
         - `rt_5.py` — Optimal combination: speed, cost-efficiency, UX, readability, accuracy and cashing 🥇
         - `rt_2.py` — Outdated logic, duplicates, poor output control, many API requests, but simpler and easier to follow 🥈
@@ -147,7 +147,6 @@ poetry run python rt_4_cached.py
 
 Сейчас проект включает следующие версии:
 
-
 1. **RealTime_Translator**
     - *RealTime переводчик выводит перевод английской речи.*
         - `rt_5.py` — Оптимальная комбинация: скорость, экономия, UX, читаемость, точность и использование кэширования 🥇
@@ -191,7 +190,6 @@ DEEPL_API_KEY=your_deepl_api_key_here
 ```
 
 ### 3.3 Запуск проекта
-
 
 Для перевода на русский язык
 

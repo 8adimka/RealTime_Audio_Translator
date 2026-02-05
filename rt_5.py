@@ -20,7 +20,7 @@ CHUNK_DURATION = 0.1  # секунды
 CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION * 2)  # 16-bit PCM = 2 байта
 
 
-def detect_pulse_monitor():
+def detect_pulse_monitor() -> str | None:
     try:
         result = subprocess.run(
             ["pactl", "info"], capture_output=True, text=True, check=True
@@ -39,6 +39,7 @@ async def read_ffmpeg_audio():
     monitor_source = detect_pulse_monitor()
     if not monitor_source:
         monitor_source = "alsa_output.pci-0000_00_1f.3.analog-stereo.monitor"
+
     cmd = [
         "ffmpeg",
         "-f",
@@ -60,6 +61,7 @@ async def read_ffmpeg_audio():
     )
     if not process.stdout:
         raise RuntimeError("Failed to get stdout from ffmpeg process")
+
     while True:
         data = await process.stdout.read(CHUNK_SIZE)
         if not data:
@@ -71,13 +73,13 @@ class RealTimeSubtitles:
     def __init__(self):
         self.session_active = False
         self.websocket = None
-        self.final_buffer = []
+        self.final_buffer: list[str] = []
         self.partial_buffer = ""
         self.last_interim_len = 0
         self.initialized = False
-        self.translation_cache = {}  # Новый: кэш переводов
+        self.translation_cache: dict[str, str] = {}
 
-    def redraw(self, text=None, is_final=False):
+    def redraw(self, text: str | None = None, is_final: bool = False):
         if not self.initialized:
             os.system("clear")
             print("Deepgram connection established")
@@ -94,11 +96,11 @@ class RealTimeSubtitles:
             sys.stdout.flush()
             self.last_interim_len = len(text)
 
-    def print_interim(self, text):
+    def print_interim(self, text: str):
         self.partial_buffer = text
         self.redraw(text=text, is_final=False)
 
-    def print_final(self, text):
+    def print_final(self, text: str):
         if text and text not in self.final_buffer:
             self.final_buffer.append(text)
             self.redraw(text=text, is_final=True)
@@ -113,8 +115,11 @@ class RealTimeSubtitles:
             return self.translation_cache[text]
 
         url = "https://api-free.deepl.com/v2/translate"
-        params = {
-            "auth_key": DEEPL_API_KEY,
+        headers = {
+            "Authorization": f"DeepL-Auth-Key {DEEPL_API_KEY}",
+            "User-Agent": "sub_realtime_translator/1.0",
+        }
+        data = {
             "text": text,
             "target_lang": "RU",
             "source_lang": TRANSLATION_LANG,
@@ -122,7 +127,7 @@ class RealTimeSubtitles:
 
         async with httpx.AsyncClient() as client:
             try:
-                response = await client.post(url, data=params)
+                response = await client.post(url, headers=headers, data=data)
                 response.raise_for_status()
                 result = response.json()
                 translated = result["translations"][0]["text"]
@@ -134,6 +139,8 @@ class RealTimeSubtitles:
 
     async def process_audio_stream(self):
         self.session_active = True
+        receive_task: asyncio.Task | None = None
+
         try:
             async with websocket_connect(
                 "wss://api.deepgram.com/v1/listen"
@@ -146,17 +153,33 @@ class RealTimeSubtitles:
                 self.websocket = ws
 
                 receive_task = asyncio.create_task(self.receive_results(ws))
-                async for chunk in read_ffmpeg_audio():
-                    try:
-                        await ws.send(chunk)
-                    except Exception as e:
-                        print(f"Send error: {e}")
-                        break
 
-                receive_task.cancel()
-                await ws.send(json.dumps({"type": "CloseStream"}))
+                try:
+                    async for chunk in read_ffmpeg_audio():
+                        try:
+                            await ws.send(chunk)
+                        except Exception as e:
+                            print(f"Send error: {e}")
+                            break
+                finally:
+                    # Корректно останавливаем receive_task
+                    self.session_active = False
+                    if receive_task and not receive_task.done():
+                        receive_task.cancel()
+                        try:
+                            await receive_task
+                        except asyncio.CancelledError:
+                            pass
+
+                    try:
+                        await ws.send(json.dumps({"type": "CloseStream"}))
+                    except Exception:
+                        pass
+
         except Exception as e:
             print(f"Connection error: {e}")
+        finally:
+            self.session_active = False
 
     async def receive_results(self, ws):
         while self.session_active:
@@ -179,20 +202,19 @@ class RealTimeSubtitles:
             except asyncio.TimeoutError:
                 print("Timeout waiting for Deepgram response")
                 break
+            except asyncio.CancelledError:
+                # Нормальное завершение при отмене задачи
+                break
             except Exception as e:
                 print(f"Receive error: {e}")
                 break
 
     def run(self):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(self.process_audio_stream())
+            asyncio.run(self.process_audio_stream())
         except KeyboardInterrupt:
             self.session_active = False
-            print("Interrupted")
-        finally:
-            loop.close()
+            print("\nInterrupted")
 
 
 if __name__ == "__main__":
